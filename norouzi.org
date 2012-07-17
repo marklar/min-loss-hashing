@@ -1,0 +1,216 @@
+
+* similarity-preserving hash functions
+** map high-dimensional data onto binary codes
+** structured prediction
+*** the output of the predictions are structured
+*** arbitrarily complex outputs
+** latent variables
+*** the hyperplanes
+** hinge-like loss fn
+** efficient to train
+** scales well to long codes
+** great results
+
+* loss fn
+** generally
+*** maximize expected reward (== minimize expected loss)
+*** loss == distance
+*** maps event -> real number representing "cost"
+**** event: fn of delta: estimated & true values for example
+*** for param estimation
+*** penalty for an incorrect classification of example
+*** consists of two parts:
+**** loss term
+**** regularization term: Occam's razor
+***** intro additional info ->
+****** solve ill-posed problem or
+****** prevent overfitting
+***** penalty for complexity, e.g.
+****** restrictions for smoothness
+****** bounds on the vector space norm
+******* norm: fn that assigns a strictly positive len to all vectors
+****** complexity: number of params
+***** will tend to produce weight vectors with many 0s
+*** lower-bounded fn
+*** decision rule (DR):
+**** makes a choice, using an optimality criterion
+**** criteria
+***** minimax: choose DR w/ lowest worst loss
+****** that is, minimize maximum (worst-case) loss
+***** invariance: choose DR satisfying an invariance requirement
+***** minimize *expected value of loss fn*
+*** good qualities:
+**** globally continuous
+**** differentiable
+** hinge-like loss function
+*** hinge: abs-value loss when the hinge point is at apex
+**** the more you violate the margin, the higher the penalty
+**** two-sided error
+**** piecewise linear, as opposed to parabolic
+***** in square loss (== parabolic), outliers have undue impact
+***** scales loss only linearly, not quadratically
+***** linear penalties good: don't weight outliers too strongly
+**** convex
+***** if we apply a nonlinear search procedure to find a local minimum...
+***** it will also be the global minimum
+** designed for hashing
+
+* good for ANN (approx near neighbor) search
+** preserve distance metric (cos-sim, Euclidean)
+** compact binary codes good
+*** if NNs w/in small hypercube in Hamming space
+**** search: sublinear time.  sketch: hash key.
+*** for exhaustive table scan
+**** still very fast
+*** small memory footprint
+
+* learning
+** goal: map:
+*** inputs: x <- R^p
+*** output: h <- H == {0,1}^q
+** how:
+*** inputs: "centered" -- mean-subtracted
+*** linear projection
+*** binary quantization
+** hash fns:
+*** param-ed by W <- R^(q*p)
+**** q
+***** num rows (height)
+***** num sketch bits  (think: "cubit")
+***** each row: for one hash fn, for a single bit of sketch
+**** p
+***** num columns (width)
+***** num INPUT dimensions
+***** each col: for one feature in input feature space
+*** b(x; w) = thr(Wx)
+**** thr(Wx): sketch (bit vector)
+**** b: one bit
+**** w: vec(W)
+**** i-th row of W determines i-th bit in hash fn
+
+* vs. other approaches
+** random projections
+*** used in LSH
+*** pros:
+**** dataset independent
+**** make no prior assumptions abt data distro
+**** longer code: increasingly better results
+*** cons:
+**** require large code lengths
+**** not applicable to general sim measures (e.g. human ratings)
+***** that doesn't matter to us
+** spectral hashing
+*** linear relaxation
+**** using weaker constraint
+**** transform (NP-)hard problem into related, polynomial-time problems
+*** eigenvector formulation
+**** resulting projection directions
+***** interpret in terms of principle directions of data
+*** works well for small codes, but << LSH for longer
+** binary reconstructive embedding (BRE)
+*** loss fn
+**** penalizes delta:
+***** Euclidean dist (in input space)
+***** Hamming dist (sketches)
+**** minimize empirical loss
+***** sum of pairwise loss (over training pairs)
+*** con: high storage cost required for training
+
+* formulation
+** D: training exemplars (each: x)
+*** centered
+*** number: N
+*** dimensions: p
+** S: set of pairs for which Similarity labels exist
+*** sim labels: binary (1: similar)
+*** for cos-sim, use threshold
+** loss fn L
+*** L : H * H * {0,1} -> R
+**** H: set of possible binary codes (h,g)
+**** {0,1}: similarity label (s)
+**** R: associated cost
+*** measures how compatible codes (h,g) are with label (s)
+**** if h,g are nearby
+***** s == 1: small cost
+***** s == 0: large cost
+**** if h,g are distant
+***** s == 0: small cost
+***** s == 1: large cost
+*** to learn w (weight vector [for particular bit])
+**** minimize (regularized) *empirical loss* over S
+**** fancyL(w) = Sigma_((i,j) <- S) { L( b(x_i;w), b(x_j;w), s_i,j ) }
+***** the loss for a particular w
+***** sum of loss over all labeled training pairs
+*** hyperparameters
+**** rho: # bits.  neighborliness threshold
+**** lambda: controls ratio of slopes of penalties incurred
+***** how open/closed is the hinge?
+*** equation:
+**** m: Hamming dist btwn h,g
+**** s: label {0,1}
+**** l_rho(m,0) = lambda * max(rho - m + 1, 0)
+**** l_rho(m,1) = max(m - rho + 1, 0)
+* bound on empirical loss
+** re-express hash fn as structured prediction
+*** our formulated empirical loss is difficult to optimize
+**** discontinuous
+**** typically non-convex
+*** instead, let's relax our goal
+**** piecewise linear, upper bound on empirical loss
+**** equation
+***** b(x;w) = argmax_(h <- H) [hT Wx]      # T: transpose
+***** b(x;w) = argmax_(h <- H) wT psi(x,h)
+****** []
+******* Iverson bracket?  for boolean values, maps to {0,1}
+******* nearest int fn?
+****** psi(x,h): vec(hxT)
+******* h: some sketch
+****** (other forms of psi() are possible)
+****** wT psi(x,h)
+******* scoring fn: determine relevance of input-code pairs
+******* based on wt-ed sum of features in joint featVec psi(x,h)
+** structural SVM (generally)
+*** given input-output training pairs {(x_i, y*_i)}  (i <- [1..N])
+**** x_i: input
+**** y*_i: actual output (sketch)
+*** aim: learn mapping in terms of param'ed scoring fn
+**** f(x,y; w)
+***** x: original doc
+***** y: sketch
+**** y_hat = argmax_y f(x,y; w)
+***** y:     some structure
+***** y_hat: predicted structure
+*** margin rescaling
+**** position of hinge is adapted
+**** slope remains fixed
+**** margin is multiplied w/ Hamming loss
+**** alternative: slack rescaling
+**** slack var
+***** intros a margin violation (slack) var per training pair
+***** minimizes the sum of slack vars
+***** for pair (x, y*)
+****** slack: max_y [ L(y,y*) + f(x,y;w)] - f(x,y*;w)
+****** slack vars provide an upper bound on loss for predictor (y_hat)
+*** however, we don't know any hash codes a priori
+**** instead, we formulate a *similar* bound for learning hash fns
+**** exploit fact that loss fn needs only Hamming dist (not sketches)
+** minimize to find w
+*** (convex-concave upper bound on empirical loss)
+*** Sigma_((i,j) <- S):
+**** max_(g_i,g_j <- H):
+***** [ L(g_i, g_j, s_i,j) + (g_iT W x_i) + (g_jT W x_j) ]
+**** - max_(h_i <- H) [h_iT W x_i]
+**** - max_(h_j <- H) [h_jT W x_j]
+*** maximize 3 terms for each pair (i,j) <- S
+**** terms 2 & 3 are trivially maximized by hash fn
+*** to multiply two matrices A,B
+**** # cols of A == # rows of B
+**** max_(h_i <- H) [h_iT W x_i]
+***** h_iT W
+****** h_iT:    1*q  ->  q cols   (row vector)
+****** W:       q*p  ->  q rows
+****** product: 1*p  ->  p cols
+***** (h_iT W) x_i
+****** x_i:     p*1  ->  p rows
+****** product: 1*1  ->  scalar
+

@@ -1,0 +1,140 @@
+-*- org -*-
+
+* goal: learn compact binary codes
+** preserve Euclidean-distance similarity
+
+* approach:
+** formulate problem in terms of:
+*** structured prediction: predict structured objs (e.g. parse tree)
+*** with latent variables
+** using loss function
+*** designed for hashing (binary, Hamming distance)
+*** more wrong -> more penalty
+** hashing
+*** binary quantization
+*** linear projection
+**** _learned_ hyperplanes, not random
+**** based on structural SVMs w/ latent vars
+
+----
+
+* training input
+** pts D (for "data")
+*** N: num of pts
+*** p: num dimensions
+*** centered (at 0): "mean-subtracted"
+** pairs S (for "similar")
+*** w/ sim label: {0,1} (bool)
+*** similar: thresholded distance
+*** using Euclidean distance: calc all pairwise sims
+* create sketches H
+** in space: {0,1}^q
+** calc hashes:
+*** parametrized by hyperplanes W (R ^ (q*p))
+*** ith bit of sketch <- which side of ith hp?
+* dimensions:
+** p: original
+** q: sketch
+* learn the hyperplanes W
+** determine quality of mapping
+** given S, minimize (regularized) empirical loss
+** use loss function (L)
+
+   data SimLabel = Close | Far
+
+   loss :: Int -> Double -> Sketch -> Sketch -> SimLabel -> Double
+   loss rho lambda h g s | s == Close -> flr0 (m-rho+1)
+                         | s == Far   -> lambda * flr0 (rho-m+1)
+       where m = hammingDist h g
+             flr0 = max 0
+
+** loss fn's hyperparams
+*** rho:    neighborliness threshold in Hamming space
+*** lambda: controls ratio of slopes of penalties incurred:
+**** similar:    when too far apart
+**** dissimilar: when too close
+*** linear penalties: robust to outliers
+** process:
+*** for S, w/ a given W:
+**** compute sketches
+**** calc SUM of loss over all training pairs
+*** minimize
+**** modify vals in W
+**** repeat
+** idealized emprical loss
+
+   type Pt = V.Vector (Feature, Double)
+   data LabeledPair = LP Pt Pt SimLabel
+
+   fancyL :: Int -> Double -> ([Hyperplane] -> Pt -> Sketch)
+          -> [LabeledPair] -> [Hyperplane] -> Double
+   fancyL rho lambda hash pairs hps = mapAccumL f 0 pairs
+       where f acc (LP p1 p2 sim) = acc + $ loss rho lambda (h p1) (h p2) sim
+             h = hash hps
+** difficult to optimize
+*** why?
+**** discontinuous
+**** non-convex
+*** instead use piecewise-linear upper bound on empirical loss
+* bound on empirical loss
+** re-express hash fn - as structured prediction
+*** for sketches H:
+*** b(x;w)  =  argmax(h) [h'Wx]  =  argmax(h) w' psi(x,h)
+**** x: data point
+**** w: parameter vector
+**** h: desired (structured) output, i.e. sketch
+**** [] : the closest integer?
+**** psi(x,h) = vec(hx')   - vectorization of hx'
+***** joint feature vector
+***** describes relationship between input x and structured output h
+**** the hash which maximizes scoring fn
+**** scoring fn: weights * joint feature vector
+***** determine relevance of pairs
+***** based on weighted sum of features in joint feature vector
+***** w' psi(x,h)
+
+* Y-hat - predicted values
+** in linear regression, predicted equation for a line of best fit
+** yHat = a + bx -- b:slope, a:y-intercept
+** differentiate between predicted data & observed data (y)
+** mtx relating observed & fitted vals: hat matrix (H)
+*** it puts a hat on y
+
+* borrow idea from structural SVMs.  w/ SSVMs:
+** given input-output training pairs -- we're not!
+** learn that mapping using parametrized scoring fn
+
+
+* formulate optimization of weights w of hashing fn
+** as minimization of convex-concave upper bound on empirical loss
+  SUM {i,j in S} (
+     max(g_i,g_j){in H} [ L(g_i, g_j, s_i,j) + g_i'Wx_i + g_j'Wx_j ]
+     - max(h_i){in H} [h_i'Wx_i]
+     - max(h_j){in H} [h_j'Wx_j]
+  )
+
+  -- want to minimize this fn
+  upperBound :: [LabeledPair] -> [Hyperplane] -> Double
+  upperBound pairs hps = mapAccumL f 0 pairs
+      where f acc (LP p1 p2 sim) = acc +
+    max(g_i,g_j){in H} [ L(g_i, g_j, s_i,j) + g_i'Wx_i + g_j'Wx_j ]
+     - max(h_i){in H} [h_i'Wx_i]
+     - max(h_j){in H} [h_j'Wx_j]
+  )
+
+  
+
+
+* vectorization
+** if A is mtx, then vec(A) its vectorization
+** so w: vec(W) -- when we see 'w', think "all vals in W"?
+** linear transformation
+*** convert mtx into col vector
+*** stack the columns on top of each other
+** perhaps we really want vech(A) -- half-vectorization
+*** if A is symmetric, then we might not want the lower triangular portion
+
+* hash fns
+** parametrized by W (in R ^ (q*p))
+** b(x; w) = thr(Wx)
+*** w: vec(W) -- vectorization of W

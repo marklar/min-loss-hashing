@@ -1,0 +1,171 @@
+"""
+We're assuming 64-bit sketches.
+For larger, some size calculations will have to be multiplied.
+
+Data structures:
+  * W
+    - hyperplanes in rows
+    - 128 * (250 * 4) = 128MB
+  (for each batch)
+  * x1_ids, x2_ids
+    - TEMPORARY: used only to compute X1, X2
+    - arrays of IDs (10k long)
+    - Each: 10k * 4 bytes = 40KB
+    - Each: may contain same ID arbitrarily many times.
+  * neigh_or_not
+    - row vector of booleans
+    - 10k * 1B (== 10KB)
+    - used to compute mtxs: NeighborLoss, NonNeighborLoss
+      which in turn are use to compute Loss
+  * Loss
+    - 
+  * X1, X2
+    - directly necessary for computing gradient
+    - matrices of data pts from 1st/2nd ID array
+    - each data pt in COLUMN
+    - each mtx::
+      + sparse: 10k * (4B * 250k): 1 GB     <-- no way
+      + condensed: 10k * (8B * ??): 1 MB??  <-- ok
+  * WX1, WX2
+    - only TEMPORARY: for computing Y1, Y2
+    - matrices of inner products: data pt * hyperplane
+    - each: (64 * 10k) * 4B: 2.6MB
+  * Y1, Y2
+    - directly necessary for computing gradient
+    - matrices of {-1, 0, 1}
+    - result of applying sign() to WX{1,2}
+    - each: (64 * 10k) * 1B = 640KB   (int8)
+  * Y1minus, Y2minus
+    - only TEMPORARY: for calculating SignsEqSums and SignsNeqSums
+    - negations of Y1, Y2
+    - each: 640KB
+  * SortedDiffs
+    - matrix (64 * 10k) * 4B: 2.6MB.
+    - intermediate: need SignsEqSums, SignsNeqSums
+      + each is same size (2.6MB).
+    - SortedDiffsIdxs (idxsVals)
+      + original index of each value in SortedDiffs
+  * IdxsSignsEq, IdxsSignsNeq
+    - computed at same time as ValsSigns{Eq,Neq}
+    - temporary: used to compute y1p, y2p  (matrices?)
+
+Stupid?  Just define a function?
+For any given observation, calculate actual loss.
+loss matrices:
+  * NeighborLoss:
+    - all possible losses for when observations *are* neighbors
+    - for each observation, @ each hamming dist
+  * NonNeighborLoss
+    - all possible losses for when observations are *not* neighbors
+    - for each observation, @ each hamming dist
+  * Loss:
+    - add those two together
+    - for any given corresponding element, one summand is always 0.
+"""
+
+NumPy makes it easy to work with vectors (and matrices).
+
+With 5k files (and far fewer than that actual non-empty documents),
+there are 64,696 features.  How many would there be if we read in all
+of the Forbes docs?
+
+- Representations -
+
+We have 8GB of RAM.
+
+Each sparse feature (or weight) vector:
+  ~65K features * 8 bytes = 520KB
+
+For W, with 64 rows:
+  64 * 520KB = ~33.3MB
+
+For FVs, let's say we have 5K of them:
+  5K * 520KB = ~2.6GB
+
+For a total of about 3GB.
+
+We can halve that amount (1.5GB) if we use float32s
+Use ary.astype(float32) to make a float32 copy of a float64 ary.
+
+
+- Condensed -
+
+For each FV, store it condensed.  Assuming it's very sparse, that's a
+big memory win.  But how can we quickly reconstitute it as needed?
+
+To store it condensed, keep two members:
+  - indices: the indices (as an array)
+  - values:  the values (as an array)
+
+To create a sparse (pre-centered) array, do this:
+  p = 65000   # input dimensions
+  sparse = zeros(p).astype(float32)
+  sparse[indices] = values
+
+Then to center it, subtract mean_vals.
+  sparse -= mean_vals
+
+If we center (mean-subtract) the inputs, we also need to re-calculate
+the magnitudes of the vectors, no?  Actually, we do not need the
+magnitudes anymore.  We used those only for calculating cosine
+similarity.  Of course, we could re-write that code to use NumPy, and
+perhaps it would be much faster?
+
+- LSH -
+
+First, let's create an implementation of LSH (latent semantic hashing).
+
+Create hyperplanes:
+  q = 64     # num of bits
+  p = 65000  # num input-space dims
+  W = random.randn(q * p).reshape(q, p).astype(float32)
+
+  # We actually want 1 more column than p.
+  # Create it:
+  z_col = zeros(64).astype(float32).reshape(64,1)
+
+  # And stick it on the side.
+  W = hstack([W, z_col])
+  # del z_col   # Good idea?
+
+Or maybe the right thing to do is to create it with an extra column
+already, and then re-set the values in that final column to 0.
+  n_cols = p+1
+  W = random.randn(q * n_cols).reshape(q, n_cols).astype(float32)
+  W[:,-1] = 0
+
+
+However, either we need to center (mean-subtract) our inputs, or we
+need to move our hyperplanes to be centered around the inputs' means.
+Which should we do?  How to perform each one?
+
+= Mean Subtracting =
+
+Assume you have a row vector of the mean for each dimension.
+  mean_vals = array([ 1.1, 0.7, ..., 0.0])
+  mean_vals.size  -> 65000  (plus 1)
+
+Hyperplanes:
+  W -= mean_vals
+  
+Inputs:
+  So each time you reconstitute a feature vector into mean-subtracted
+  one, simply perform:
+    x -= mean_vals
+
+= Center Input =
+
+Before training, we go back to each of our feature vectors and, for
+each column, subtract that feature's mean.  Our formerly sparse
+(i.e. lots of 0s) input feature vectors will now have lots of negative
+numbers and will now be very dense.
+
+Before hashing novel input, we do the same.
+
+= Center Hyperplanes =
+
+The advantage of doing this: do it once and don't worry about it
+anymore.  But question: instead of the final column being 0, what
+should it be?  Still 0?  Or something that better reflects the mean?
+Since we don't know, perhaps it's better to stick with centering the
+input.

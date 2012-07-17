@@ -1,0 +1,146 @@
+
+== External Libs ==
+
+- NumPy -
+
+>>> USE THE 32-BIT VERSION OF PYTHON 2.7.2. <<<
+
+For this code, Python 2.7 is HUGELY faster than 2.6.  It seems that
+NumPy requires the 32-bit version.
+
+- bitarray -
+
+Install it from source:
+    Get it:
+      from: http://pypi.python.org/pypi/bitarray
+      get: bitarray-0.3.5.tar.gz
+    > cd bitarray-0.3.5
+    > sudo python setup.py install
+    > cd .. ; python -c 'import bitarray; bitarray.test()'
+
+- termcolor -
+
+Not crucial -- used only for compare_docs.
+Install it from source:
+    Get it:
+      from: http://pypi.python.org/pypi/termcolor
+      get: termcolor-1.1.0.tar.gz
+    > cd termcolor-1.1.0
+    > sudo python setup.py install
+
+
+== Scripts ==
+
+- weighted_fvs.py -
+
+Given a directory of *.model.json files which contain annotated
+document models, create a couple of output files:
+
+  * term-freq-vecs.ejson   - feature vectors: term-string, intra-doc count
+  * weighted-vecs.ejson    - feature vectors: term-string, tf*idf, w/ magnitude
+
+The '.ejson' files are in "earnestJ" format (i.e. one JSON obj per
+line).  This facilitates streaming input.
+
+
+- cosine_sims.py -
+
+The user provides a number on the command line: how many documents for
+which to compute pairwise cosine-similarity scores.
+
+Then, given file:
+  * INPUT: weighted-vecs.ejson
+
+select the N longest docs (by magnitude) and write them to the file:
+  * OUTPUT: big-weighted-vecs.ejson
+
+Then calculate the pairwise similarities:
+  * OUTPUT: cos-sims.dat
+    <score>  <doc_id_1>  <doc_id_2>
+
+
+- id_fvs.py -
+
+Using all (not just biggest) weighted feature vectors, computes the
+mean value for each feature:
+  * OUTPUT: mean-vals.json - mapping: term-string => mean val
+
+Again, using all (not just biggest) weighted feature vectors, assigns
+an ID to each string feature:
+  * OUTPUT: feature-ids.json - mapping: term-string => term-ID
+
+Lastly, for just the biggest docs, substitute in int IDs for the
+string features.
+  * OUTPUT: id-weighted-vecs.ejson - feature vectors: term-IDs, tf*idf
+
+
+- compare_docs.py -
+
+Cmd-line utility for visually comparing two docs.  Displays their
+common features, and then highlights them in the display of the docs.
+
+Requires weighted-vecs.ejson (created by doc2vec).
+
+(Uses modules 'highlight', 'overlap', and 'util'.)
+
+
+- lsh_W.py -
+
+Cmd line: provide q (number of desired bits in sketch).
+
+Produces matrix W.
+  * output file: W.npy  (NumPy binary file)
+
+Characteristics of W:
+  * Random: standard Normal distribution.
+  * Shape: q * p:
+    - q: provided number of bits in sketch
+    - p: number of input features
+
+N.B. One could choose to artificially inflate p.  That would allow the
+runtime system to make use of features not seen during training.
+
+Requires feature-ids.json, produced by doc2vec.py.  It is used merely
+to determine p (the number of input features).
+
+
+- lsh_hash.py -
+
+Reads in feature vectors in "indexes" them (creates sketch for each).
+
+Requires input files from doc2vec and lsh_mk_W:
+  * id-weighted-vecs.ejson
+  * mean-vals.json
+  * feature-ids.json
+  * W.npy
+
+Writes sketches to outfile:
+  * sketches.ejson
+
+
+- lsh_hamming.py -
+
+Reads in all sketches and does pairwise comparisons, creating output
+file ham-sims.dat (and ham-dists.dat).
+
+Rather than outputting the Hamming distance (i.e. the number of bits
+different), it outputs the "Hamming similarity" (i.e. the number of
+bits in common).  This makes it easier to use a priority queue to keep
+track of the best matches.
+
+
+- lsh_f_score.py -
+
+Uses cos-sims.dat (from doc2vec) and ham-sims.dat (from lsh_hamming) to
+judge the performance of the sketching.
+
+
+- correlation.py -
+
+Computes Pearson correlation coefficient between pairwise
+similarity...
+  * SCORES: cosine & hamming
+  * RANKS:  cosine & hamming
+
+Jankily kinda displays them, too.
+

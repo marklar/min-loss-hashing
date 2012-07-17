@@ -1,0 +1,202 @@
+== Hash-Based Similarity Search ==
+
+= Intro =
+
+For content-based recommendation system, we need to know how
+similar (of different) any two documents are to each other.
+
+Using the current system, making comparisons is extremely expensive.
+It requires calculations which grow quadratically with the size of the
+corpus.  This inhibits us from working with large corpora and makes
+it impossible to provide real-time results for novel documents.
+
+Hash-based similarity search (HBSS) can solve these problems, enabling
+similarity search on arbitrarily large document sets in real time,
+even for novel documents.
+
+The remainder of this document covers these issues in more detail.
+
+
+= Do We Need Similarity Comparisons? =
+
+To make recommendations based on content requires knowing something
+about whether documents contain similar features.  Does this mean we
+need similarity search?
+
+Well no, not necessarily.  It *could* mean keyword search: take a
+small number of features from a query document and find (and rank) all
+documents that contain some subset of those features.  But that's
+almost certainly not what we want.  It would either be too expensive,
+or it wouldn't provide good results.  (And often, both.)
+
+If we use too many features in the search, it would run much too
+slowly.  The number of matching results increases monotonically with
+the number of query terms, and de-duping and ranking becomes
+expensive.  We cannot afford to build a Google-sized infrastructure to
+support long queries.
+
+Also, large search indices perform best on static collections of
+documents.  Adding new documents essentially means merging results
+from multiple indices.  As the number of additions grows, one must
+periodically merge the indices themselves, which requires compute time
+and devops management.  It's a trickier problem than it may sound.
+
+If on the other hand we use too few features in the search, we'd get
+too incomplete a picture of the relevance.  We may wish to recommend a
+range of documents, varying from very similar to largely dissimilar,
+and there'd be no way to achieve that with keyword search.
+
+But what if we do a really excellent job of finding the n most
+important features of every document?  For example, what if we can get
+concept mining (or some other feature reduction technique) to produce
+really good results?  I cannot know, but I speculate that using just
+concepts provides much too little data for making quality comparisons.
+
+I believe that the best way to judge relevance is by using nearly all
+features, which requires similarity search.
+
+
+= What Makes the Current System Expensive? =
+
+In our current system, the contents of each document are
+represented by a collection of its features (each accompanied by a
+weight meant to indicate its value for understanding the document).
+We call this collection of weighted features a "feature vector".
+
+Each feature vector is rather large, roughly proportional to the
+number of tokens in the document.  (More accurately, on average, the
+feature vectors grow logarithmically with the number of tokens.)  A
+one-thousand-token document might contain roughly equally many
+feature-weight pairs.
+
+The entire set of features across all documents is extremely large.
+(Again, growing logarithmically, this time with the number of
+documents, and in much larger multiples.)  When considered
+geometrically, each document can be thought of as a point in a space
+defined by this very large set of features.  To compare two documents
+means to find the distance between the points that represent them in
+this extremely-high-dimensional space.
+
+Since there are so many dimensions, and the magnitudes in each
+dimension are real-valued, there are no easy shortcuts for comparing
+them.  One must find all features common to both documents and then 
+compute a similarity score from their weights.  Each individual 
+comparison isn't terribly expensive, but neither is it merely a
+handful of machine instructions.  It all adds up.
+
+The reason it adds up is that the number of comparisons grows
+quadratically with the number of documents.  Stated another way, it
+does not scale linearly.  Each 10-fold increase in the number of
+documents means a 100-fold increase in the number of necessary
+comparisons.  Having just 1 million documents means computing and
+caching 500 billion comparisons, which is untenable.
+
+Because computing comparisons takes so long, the only way to respond
+to user queries quickly is by pre-computing and caching all sets of
+results.  The cache need not store (a sorted list of) all possible
+results for each document, but the fewer it stores, the less
+flexibility we have for filtering those results (based on degree of
+similarity, or newness, or publisher of document, or any other
+business requirement we may have).  The cache will not merely take a
+long time to build, if best serving our purposes it will also take up
+considerable space and require significant computation to maintain in
+optimal order for retrieval.
+
+Assuming we can tractably pre-compute and cache all results, that
+allows us to respond to query documents we've seen before in real
+time.  However, for novel query documents, we simply cannot provide an
+answer in real time.  Likewise, any new document to the system cannot
+(economically) be considered for recommendation until after a large
+number of calculations and possible cache updates have been made.
+
+Systems of quadratic computational complexity do not scale.  We need a
+system with low-order complexity.
+
+
+= How Does HBSS Solve These Problems? =
+
+HBSS solves these problems by reducing very-high-dimensional,
+real-valued comparisons to low-dimensional, binary-valued comparisons.
+What does that mean?
+
+The current system works in very-high-dimensional space.  That's the
+number of unique features across all documents.  HBSS figures out a
+way to represent the variance across all those data in a very low
+number of dimensions, such as 64.  In other words, it captures the
+range of semantics in patterns that can be stored in only 64
+dimensions.
+
+Also, the current system has real-number values for each dimension, so
+comparisons require calculating a real number from the squares and
+sums of many different numbers.  HBSS, in contrast, represents each
+dimension's value as a simple zero or one.  This means that
+comparisons are extemely efficient -- across the small number
+features, all we do is count the discrepancies.
+
+Okay, so HBSS's comparisons are much more efficient than our current
+vector-space similarity search.  But it still requires pre-calculating
+and caching all those comparisons, right?  Wrong.
+
+The compact representations in HBSS can be used as hash codes.  To
+find a document's near neighbors, we get its hash code, and we simply
+look "nearby" (in the hash table) to find the hash codes inside a
+"Hamming ball".  A Hamming ball is the set of all codes with fewer
+than some number of differences from our query hash code.  So, first
+we take any doucuments which happen to have the same compact
+representation (i.e. are in the same hash bucket).  If we need more,
+we take any one of the 64 bits and flip it (from 0 to 1 or vice-versa)
+and look take those documents (i.e. in that hash bucket).  Repeat that
+process as much as you like, flipping more bits as you go, to find
+more (but slightly more dissimilar) documents.
+
+Note that we need not store the similarities between documents.  The
+similarity can be thought of as implicitly stored in the
+representations of the two documents.  No comparisons need be
+pre-computed or cached.  Finding near neighbors runs in *constant*
+time, completely independent of the size of the corpus.
+
+Moreover, any novel document's compact representation can be
+calculated in real-time.  Since we do not pre-compute neighbors, we
+can accept novel queries or add novel recommendation candidates with
+no more effort than calculating their compact representations and
+adding them to the hash table.
+
+These characteristics of HBSS allow us to scale up to very large
+corpora (and even to simplify the deployment and updating of corpora
+of any size).
+
+
+= What Does it Take to Use HBSS? =
+
+Step 1: Featurize.  As always, create feature vectors for whatever
+documents you already have.
+
+Step 2: Train.  That is, feed some representative subset of your
+feature vectors into a system which then learns how best to generate
+compact representations of documents which best maintain their
+similarity relationships.  This process can take a long time.  (Not
+relative to performing all pairwise similarity computations, however.)
+When training is complete, it produces a "model" -- a function which
+takes a feature vector and produces its hash code.
+
+Step 3: Hash.  Run the hash function against all feature vectors, and
+store the resulting mapping in a high-volume key-value store
+(e.g. MongoDB).
+
+Step 4: Query.  Query for near (or even not-so-near) neighbors, given
+the "Hamming ball" method described above.  Given a query document,
+fetch or compute its hash code.  Then look as near to or as far away
+from that hash code as you may like to find neighbors of the
+appropriate similarity.
+
+Step 5: Add docs.  To add a new document to the system, run the hash
+function against it and add the mapping in your k-v store.
+
+Step 6: Repeat steps 2 & 3.  Every so often, your model will get out
+of date.  If you add enough new documents, the distribution of terms
+over those documents will begin to change meaningfully, and your model
+should be updated to reflect that.  So retrain your model, and re-hash
+all your feature vectors.  Then return to business as usual
+(i.e. steps 4 & 5).
+
+-The End-

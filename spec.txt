@@ -1,0 +1,55 @@
+
+== Pieces ==
+
+= Trainer =
+
+For MLH to work, the hash function requires training.
+
+INPUT:
+  * feature vectors
+        List[ Vector[(String,Double)] ]    (feature, weight)
+  * pairwise similarity scores
+        List[(Int,Int,Double)]             (id1, id2, score)
+    
+OUTPUT:
+  * a map from features to IDs
+        Map[String,Int]               (feature, ID)
+  * hyperplanes
+        Vector[ Vector[Double] ]      weights
+
+
+= Sketcher =
+
+The Sketcher is initialized with the output from the Trainer.  Given a
+feature vector of type Vector[(String,Double)], it outputs a sketch
+(hashcode).
+
+
+= Indexer =
+
+Run the Hasher over each feature vector to produce a sketch for each.
+Store them in MongoDB.  Supports online updates -- given a novel
+feature vector, it adds its sketch to the index.
+
+
+= Searcher =
+
+The Searcher is initialized with the index produced by the Indexer.
+Given the ID of an already-indexed feature vector, it returns a list
+of IDs of its nearest neighbors.
+
+
+== Schedule ==
+
+The Trainer is by far the most complicated piece of logic and will
+take the lion's share of the time.
+
+= Week 1 =
++ Trivial Sketcher, using fake (randomly generated) Trainer output
++ Indexer, using Trivial Sketcher
+
+= Week 2 =
++ Searcher
+
+= Weeks 3,4 =
++ Trainer

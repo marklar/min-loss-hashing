@@ -1,0 +1,132 @@
+-*- org -*-
+
+* impl details
+** IID
+*** independent & identically distro'd (randvars)
+*** -> all randvars:
+**** have same prob distro as eachother
+**** are mutually independent
+** stochastic ("online") gradient descent -- iterative
+*** approximate the gradient
+**** use only a single training pt
+**** update our params (w) afterwards (w/ learning rate)
+*** make several passes over training set until convergence
+*** optional:
+**** randomly shuffle training pts after each iter
+**** use adaptive (diminishing) learning rate
+*** pseudocode
+**** choose init confing:
+***** params vector (w)
+***** learning rate (alpha)
+**** repeat until convergence:
+***** randomly shuffle training pts
+***** update w for each (i) of n training pts:
+****** w := w - a GRADIENT objective-fn_i(w)
+** data sets
+*** kinds
+**** valid - for selecting init model (i.e. params) & hyperparams
+**** train - generalize
+**** test  - eval the final generalization error (cmp algos)
+*** classification probs
+**** 
+** learning rule
+*** loss-adjusted inference
+**** loss is multiplied by constant eta
+**** eta balances loss & scoring fns
+*** rows of W
+**** constrain to unit length
+**** normalize after each gradient update
+*** iterative computation of grandient
+**** use mini-batches: "Minibatch SGD"
+***** approx gradient: sum over small # training pts
+**** add momentum term - based on grad of prev step
+**** reduces variance in the estimate of the gradient
+**** often makes better use of hier memory org in modern computers
+*** validation - for selecting init model, hyperparams
+**** eta: balancing loss & scoring fns
+**** loss params: rho, lambda
+*** rho: allow to increase linearly w/ code length
+
+
+* early-stopping
+** combats overfitting
+** monitor the model's performance on a validation set
+** validation set
+*** used during training
+*** but never used for gradient descent
+*** considered representative of future test examples
+*** but not part of test set
+** decide when to stop optimization, based on model's perf
+*** if ceases to improve sufficiently on valid set, or
+*** if degrades w/ further optimization
+** heuristic involves:
+*** patience         -- min number examples
+*** patienceIncrease -- how many more when find new best
+*** improveThresh    -- how much improvement deemed material
+*** validFreq        -- # minibatches between validations
+
+
+* testing
+** when we're done optimizing
+*** result: bestParams (model) -- on validation set
+** repeat to get other best-perf models
+*** for another:
+**** model class, or
+**** random init
+*** use same train/valid/test split of data
+** choose best model / init on validation data
+*** compare bestValidationLoss for each (best: lowest)
+*** report model's TEST perf
+
+* recap
+** in order to do early-stopping, we use 3 partitions of data
+** training
+*** minibatch stocastic gradient descent (M-SGD)
+*** on differentiable approx of objective fn
+** validation
+*** during descent, periodically consult valid set
+*** see how well model does on real objective fn (or empirical estimate of same)
+*** when see good model results, save model
+** test
+*** when not seeing new good models, abandon search
+*** use best model on test set
+
+
+* experiments
+** each dataset:
+*** a training set,
+*** a test set, and
+*** a set of ground-truth neighbors
+** evaluation:
+*** compute precision and recall
+**** for pts retrieved w/in a HammDist R
+**** of codes associated w/ the test queries
+*** precision (as fn of R)
+**** H/T
+**** T: total #pts retrieved in HammBall w/ radius R
+**** H: # true neighbors among them
+*** recall (as fn of R)
+**** H/G
+**** G: total # ground-truth neighbors
+** 22K LabelMe
+*** num pts:
+**** training: 20,019
+**** testing:   2,000
+*** each 512-D "Gist" descriptor
+** threshold for neighborliness
+*** find Euclidean dist (why not cos similarity?)
+    where each pt has ave of 50 neighbors
+*** training
+**** ground-truth neighbors (and non-)
+*** testing
+**** compute precision & recall
+** preprocessing
+*** mean-center dataset
+*** normalize each datum to have unit length
+*** no PCA
+**** some methods improve (-> 40D subspace)
+**** MLH does slightly better without
+** method w/ local minima -OR- stochastic optimization
+*** optimize models
+**** at each of several code lengths
+*** precision (averaged over 10 models, with st. dev. bars),

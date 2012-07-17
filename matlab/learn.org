@@ -1,0 +1,56 @@
+-*- org -*-
+
+* goal: learn weights for hash fn
+** input
+*** training data
+*** hyperparams
+**** for loss fn
+***** lambda
+***** rho
+**** number of bits
+**** training_rate: initial value, whether to vary
+**** minibatch size
+**** patience (max number of epochs)
+**** zero-bias: is data centered at 0?
+**** momentum (0<->1): 
+***** compute on-the-fly (online) a moving ave of past gradients
+***** in update, use this instead of current example's gradient
+***** typically, an exponentially decaying moving average:
+       D theta^(k+1) =
+             alpha * (D theta^k) +
+             (1-alpha) * [ partial L(theta^k, z) / partial theta^k ]
+***** alpha hyperparam: wt older v. newer gradients
+**** weight_decay: small factor, e.g. [0.01, 0.001, 0.0001]
+** get training data as mtxs
+*** instances
+**** each instance has features from orig feature space
+**** x1: all first instances of pair
+**** x2: all second instances of pair
+*** neighOrNot: labels {0,1}
+** inner-product mtxs
+*** Wx1, Wx2
+*** each elem is inner product of:
+**** hyperplane (W_i)
+**** instance (x1_j)
+** create y1, y2
+*** _sign_ of inner products
+*** what does this MEAN?
+** compute sums of inner products
+*** idxsEq: 
+** compute loss for each labeled pair
+*** 
+** compute current_gradient
+*** 
+** update W
+*** update Winc (the running ave of past gradients)
+**** use both Winc & W.  the (elem-by-elem) sum of these mtxs:
+***** momentum * Winc
+***** current_gradient & W.  product:
+****** eta (learning rate) [scalar]
+****** diff:
+******* current_gradient / num_instances_in_minibatch
+******** WHAT MEANS?
+******* product:
+******** weight_decay
+******** W : all the same rows, but replacing last col of each w/ 0
+*** increment W by Winc, elem-by-elem
